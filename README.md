@@ -11,20 +11,47 @@
 
 </div>
 
+经过源代码审查的无后门版BiliTickerBuy，将同步[mikumifa/biliTickerBuy](https://github.com/mikumifa/biliTickerBuy)更新，一旦发现后门将在本README.md中置顶通知并删除后门。
+
 开源免费，简单易用，图形界面, 速度极快的B站会员购辅助工具
 
 
 ## 快速安装
 
-Windows 下载最新的release文件 (bilibili-buy.zip) [下载链接](https://github.com/mikumifa/biliTickerBuy/releases) 
+所需环境：Python 3.9及以上
 
-MacOS,linux,电脑版本不支持本地验证码请使用 [docker部署](https://github.com/mikumifa/biliTickerBuy/wiki/linux%E5%92%8CMacOS%E7%9A%84%E8%BF%90%E8%A1%8C%E6%96%B9%E5%BC%8F-%EF%BC%88%E4%BD%BF%E7%94%A8docker)
- 
+Windows：请依次复制并运行以下命令：
+
+```
+git clone https://github.com/lclty/BiliTicker_NoBackDoor.git
+cd ./BiliTicker_NoBackDoor
+pip install -r requirements.txt
+python main.py
+```
 > **NOTE**
 >
-> 如果你对Github一点也不了解, 不知道在哪下载
+> 如果 ``` git clone ``` 失败或过程过慢，请自行使用 VPN 等代理链接；
 >
-> 这里有一份小白指南 [点我前往小白指南](https://github.com/mikumifa/biliTickerBuy/wiki/%E5%B0%8F%E7%99%BD%E4%B8%8B%E8%BD%BD%E6%8C%87%E5%8D%97)
+> 如果 ``` pip install ``` 失败或过程过慢，请尝试将 pip 更换为清华源
+>
+> 更换方法：复制下面代码并在 ```pip install -r requirements.txt``` 这一行上面运行即可
+>
+> ```pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple ```
+
+MacOS 与 linux：
+
+请提前部署好 Docker .
+
+依次复制并运行以下命令：
+
+```
+git clone https://github.com/lclty/BiliTicker_NoBackDoor.git
+cd ./BiliTicker_NoBackDoor
+docker build -t bilitickerbuy .
+docker run -d -p xxxx:xxxx --name bilitickerbuy_container bilitickerbuy
+```
+
+其中，```xxxx```所代表的内容为端口号，取值范围为(1024,65535]∪N*.
 
 ## 使用说明书
 重构了UI，启动终端第一行会显示
@@ -52,7 +79,7 @@ Running on local URL:  http://127.0.0.1:xxx
 | 链接                                                      | 主要特色               |
 | --------------------------------------------------------- | ---------------------- |
 | https://github.com/bilibili-ticket/bilibili-ticket-python | 蹲回流票               |
-| https://github.com/biliticket/BHYG                        | 多种抢票策略、支持代理 |
+| https://github.com/biliticket/BHYG                        | 多种抢票策略、支持代理（不建议使用！！会被撤票！！） |
 
 ## 项目贡献者
 
@@ -152,9 +179,6 @@ Running on local URL:  http://127.0.0.1:xxx
 <!-- readme: collaborators,contributors -end -->
 
 
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=mikumifa/biliTickerBuy&type=Date)](https://star-history.com/#mikumifa/biliTickerBuy&Date)
 
 ## 免责声明
 
