@@ -8,7 +8,6 @@ from json import JSONDecodeError
 from urllib.parse import urlencode, quote
 
 import gradio as gr
-import ntplib
 import qrcode
 import retry
 from gradio import SelectData
@@ -61,6 +60,11 @@ def go_tab():
 > - 欢迎前往[discussions](https://github.com/mikumifa/biliTickerBuy/discussions) 分享你的经验
 """)
     with gr.Column():
+        gr.Markdown(
+            """
+            ### 上传或填入你要抢票票种的配置信息
+            """
+        )
         with gr.Row(equal_height=True):
             upload_ui = gr.Files(label="上传多个配置文件，点击不同的配置文件可快速切换", file_count="multiple")
             ticket_ui = gr.TextArea(
@@ -73,38 +77,6 @@ def go_tab():
                 <input type="datetime-local" id="datetime" name="datetime" step="1">""",
             label="选择抢票的时间",
             show_label=True,
-        )
-
-        global_cookieManager.set_config_value("timeoffset", 0) # 时间补偿初始设置为0
-        def set_timeoffset(_timeoffset):
-            try:
-                global_cookieManager.set_config_value("timeoffset", float(_timeoffset))
-            except ValueError as e:
-                # 说明time_diff_ui显示的为错误信息而不是时间偏移, 不应被存入cookie. 将timeoffset重设为 0
-                global_cookieManager.set_config_value("timeoffset", 0)
-
-        time_diff_ui = gr.Text(label="设置时间偏差(单位: ms)",
-                               info="通过将本机时间与中国标准时间进行比较, 补偿相应的时间偏差。正值将推迟相应时间开始抢票, 负值将提前相应时间开始抢票。可以手动填入偏差或者点击下面按钮自动获得偏差。",
-                               value=global_cookieManager.get_config_value("timeoffset"))
-        time_diff_ui.change(fn=set_timeoffset, inputs=time_diff_ui, outputs=None)
-            
-        def compute_timeoffset():
-            ntp_server = 'ntp.aliyun.com'
-            client = ntplib.NTPClient()
-            try:
-                response = client.request(ntp_server, version=3)
-            except Exception as e:
-                return "时钟服务器(" + ntp_server + ")错误, 请重试。时间偏差已被重设为0"
-            ntp_time = response.tx_time
-            device_time = time.time()
-            time_diff = (device_time - ntp_time)*1000 # 转换为ms单位
-            return format(time_diff,'.2f')            
-        
-        refresh_time_ui = gr.Button(value="点击自动得到时间偏差")
-        refresh_time_ui.click(
-            fn=compute_timeoffset,
-            inputs=None,
-            outputs=time_diff_ui
         )
 
         def upload(filepath):
@@ -136,6 +108,35 @@ def go_tab():
         phone_gate_ui = gr.Textbox(label="填写你的当前账号所绑定的手机",
                                    info="可能会出现手机验证码验证",
                                    value=global_cookieManager.get_config_value("phone", ""))
+
+        with gr.Accordion("验证码预填设置[可选]", open=False):
+            gr.Markdown(
+                """
+                ### 请注意阅读下方注意事项
+                - 在这里, 你可以上传或者填入要抢票的票仓下其他已开票/已售罄的票种配置文件(填入其他票仓的配置文件是无效的)来辅助抢票。脚本会使用该配置文件提前请求验证码, 降低抢票时遇到验证码的概率
+                - 请注意: 你需要在配置选项卡下, 选择你要抢的票仓中**其它已售罄或者已开票还未售罄**的票种来生成配置文件填入这里, 选择不可售的票种配置文件填入这里**可能会被风控**
+                - 你可以通过修改下方的"验证码提前预填时间", 来配置提前多长时间开始预填验证码
+                - 在距抢票开始时间不足30秒时, 为避免影响正常开票时抢票, 验证码预填功能将不会启用
+                - 如不需要使用验证码预填功能, 此处请留空
+                """
+            )
+            with gr.Row(equal_height=True):
+                authcode_prepare_file_ui = gr.Files(label="上传多个配置文件，点击不同的配置文件可快速切换",
+                                                    file_count="multiple"
+                                                    )
+                authcode_prepare_text_ui = gr.TextArea(
+                    label="填入配置",
+                    info="再次填入配置信息。不同版本的配置文件可能存在差异，升级版本时候不要偷懒，老版本的配置文件在新版本上可能出问题",
+                    interactive=True
+                )
+            authcode_preorder_time_ui = gr.Number(label="验证码提前预填时间(单位: 秒)",
+                                                  info="设置在正式抢票之前多秒开始预填验证码, 最小值为30秒",
+                                                  minimum=30,
+                                                  value=180)
+            authcode_prepare_file_ui.upload(fn=upload, inputs=authcode_prepare_file_ui,
+                                            outputs=authcode_prepare_text_ui)
+            authcode_prepare_file_ui.select(fn=file_select_handler, inputs=authcode_prepare_file_ui,
+                                            outputs=authcode_prepare_text_ui)
 
         def input_phone(_phone):
             global_cookieManager.set_config_value("phone", _phone)
@@ -180,9 +181,11 @@ def go_tab():
                 info="设置抢票的总次数",
                 visible=False,
             )
+
     validate_con = threading.Condition()
 
-    def start_go(tickets_info_str, time_start, interval, mode, total_attempts, api_key):
+    def start_go(tickets_info_str, authcode_prepare_str, authcode_preorder_time, time_start, interval, mode,
+                 total_attempts, api_key):
         nonlocal geetest_validate, geetest_seccode, gt, challenge, isRunning
         isRunning = True
         left_time = total_attempts
@@ -199,8 +202,9 @@ def go_tab():
             try:
                 if time_start != "":
                     logger.info("0) 等待开始时间")
-                    timeoffset = (global_cookieManager.get_config_value("timeoffset"))/1000
+                    timeoffset = (global_cookieManager.get_config_value("timeoffset")) / 1000
                     logger.info("时间偏差已被设置为: " + str(timeoffset) + 's')
+                    authcode_prepare_flag = 0  # 标记是否已进行预填, 避免重复预填
                     while isRunning:
                         try:
                             time_difference = (
@@ -214,18 +218,166 @@ def go_tab():
                             )
                         if time_difference > 0:
                             if time_difference > 5:
+                                # 抢票验证码预填
+                                if time_difference <= authcode_preorder_time and time_difference > 30 and authcode_prepare_str != "" and authcode_prepare_flag == 0:
+                                    logger.info("开始进行预填验证码, 设定的提前预填时间为: " + str(
+                                        authcode_preorder_time) + "秒")
+                                    yield [
+                                        gr.update(
+                                            value=withTimeString("开始进行预填验证码, 如选择手动模式请注意验证码弹窗。"),
+                                            visible=True),
+                                        gr.update(visible=True),
+                                        gr.update(),
+                                        gr.update(),
+                                        gr.update(),
+                                        gr.update(),
+                                        gr.update(),
+                                    ]
+                                    attempt_times = 2  # 为避免错过开票时间, 最多尝试两次预填
+                                    while attempt_times > 0:
+                                        # ---------验证码预填 BEGIN--------- #
+                                        # 验证码预填只需通过prepare拿到token即可, 无需尝试提交订单
+                                        # 数据准备
+                                        tickets_info = json.loads(authcode_prepare_str)
+                                        _request = main_request
+                                        token_payload = {
+                                            "count": tickets_info["count"],
+                                            "screen_id": tickets_info["screen_id"],
+                                            "order_type": 1,
+                                            "project_id": tickets_info["project_id"],
+                                            "sku_id": tickets_info["sku_id"],
+                                            "token": "",
+                                            "newRisk": True,
+                                        }
+
+                                        # 订单准备
+                                        logger.info(f"预填验证码_订单准备")
+                                        request_result_normal = _request.post(
+                                            url=f"https://show.bilibili.com/api/ticket/order/prepare?project_id={tickets_info['project_id']}",
+                                            data=token_payload,
+                                        )
+                                        request_result = request_result_normal.json()
+                                        logger.info(
+                                            f"请求头: {request_result_normal.headers} // 请求体: {request_result}")
+                                        code = int(request_result["code"])
+                                        # 完成验证码
+                                        if code == -401:
+                                            # if True:
+                                            _url = "https://api.bilibili.com/x/gaia-vgate/v1/register"
+                                            _payload = urlencode(request_result["data"]["ga_data"]["riskParams"])
+                                            _data = _request.post(_url, _payload).json()
+                                            logger.info(
+                                                f"验证码请求: {_data}"
+                                            )
+                                            csrf = _request.cookieManager.get_cookies_value("bili_jct")
+                                            token = _data["data"]["token"]
+                                            if _data["data"]["type"] == "geetest":
+                                                gt = _data["data"]["geetest"]["gt"]
+                                                challenge = _data["data"]["geetest"]["challenge"]
+                                                geetest_validate = ""
+                                                geetest_seccode = ""
+                                                if ways_detail[select_way].have_gt_ui():
+                                                    logger.info(f"Using {ways_detail[select_way]}, have gt ui")
+                                                    yield [
+                                                        gr.update(value=withTimeString("进行验证码验证"), visible=True),
+                                                        gr.update(visible=True),
+                                                        gr.update(),
+                                                        gr.update(visible=True),
+                                                        gr.update(value=gt),
+                                                        gr.update(value=challenge),
+                                                        gr.update(value=uuid.uuid1()),
+                                                    ]
+
+                                                def run_validation():
+                                                    nonlocal geetest_validate, geetest_seccode
+                                                    try:
+                                                        tmp = ways_detail[select_way].validate(appkey=api_key, gt=gt,
+                                                                                               challenge=challenge)
+                                                    except Exception as e:
+                                                        return
+                                                    validate_con.acquire()
+                                                    geetest_validate = tmp
+                                                    geetest_seccode = geetest_validate + "|jordan"
+                                                    validate_con.notify()
+                                                    validate_con.release()
+
+                                                validate_con.acquire()
+                                                while geetest_validate == "" or geetest_seccode == "":
+                                                    threading.Thread(target=run_validation).start()
+                                                    yield [
+                                                        gr.update(value=withTimeString(
+                                                            f"等待验证码完成， 使用{ways[select_way]}"),
+                                                            visible=True),
+                                                        gr.update(visible=True),
+                                                        gr.update(),
+                                                        gr.update(),
+                                                        gr.update(),
+                                                        gr.update(),
+                                                        gr.update(),
+                                                    ]
+                                                    validate_con.wait()
+                                                validate_con.release()
+                                                logger.info(
+                                                    f"geetest_validate: {geetest_validate},geetest_seccode: {geetest_seccode}"
+                                                )
+                                                _url = "https://api.bilibili.com/x/gaia-vgate/v1/validate"
+                                                _payload = {
+                                                    "challenge": challenge,
+                                                    "token": token,
+                                                    "seccode": geetest_seccode,
+                                                    "csrf": csrf,
+                                                    "validate": geetest_validate,
+                                                }
+                                                _data = _request.post(_url, urlencode(_payload)).json()
+                                            elif _data["data"]["type"] == "phone":
+                                                _payload = {
+                                                    "code": global_cookieManager.get_config_value("phone", ""),
+                                                    "csrf": csrf,
+                                                    "token": token,
+                                                }
+                                                _data = _request.post(_url, urlencode(_payload)).json()
+                                            else:
+                                                logger.warning("这个一个程序无法应对的验证码，脚本无法处理")
+                                                break
+                                            logger.info(f"validate: {_data}")
+                                            geetest_validate = ""
+                                            geetest_seccode = ""
+                                            if _data["code"] == 0:
+                                                logger.info('预填验证码成功, 等待开票')
+                                                break
+                                            else:
+                                                logger.warning("预填验证码失败 {}", _data)
+                                                yield [
+                                                    gr.update(value=withTimeString("预填验证码失败。重新验证"),
+                                                              visible=True),
+                                                    gr.update(visible=True),
+                                                    gr.update(),
+                                                    gr.update(),
+                                                    gr.update(),
+                                                    gr.update(),
+                                                    gr.update(),
+                                                ]
+                                                attempt_times += 1
+                                                time.sleep(1)  # 休息1秒, 避免触发风控
+                                        if code == 0:
+                                            logger.info("未出现验证码, IP可能已在白名单中, 跳过验证码预填")
+                                            break
+                                    # ---------验证码预填 END--------- #
+                                    authcode_prepare_flag = 1
                                 # 剩余时间大于5秒时, 每秒渲染一次页面, 渲染后重新计算剩余开票时间, 不会导致剩余时间计算误差累积
-                                yield [
-                                    gr.update(value="等待中，剩余等待时间: " + (str(int(
-                                        time_difference)) + '秒') if time_difference > 6 else '即将开抢', visible=True),
-                                    gr.update(visible=True),
-                                    gr.update(),
-                                    gr.update(),
-                                    gr.update(),
-                                    gr.update(),
-                                    gr.update(),
-                                ]
-                                time.sleep(1)
+                                else:
+                                    yield [
+                                        gr.update(value="等待中，剩余等待时间: " + (str(int(
+                                            time_difference)) + '秒') if time_difference > 6 else '即将开抢',
+                                                  visible=True),
+                                        gr.update(visible=True),
+                                        gr.update(),
+                                        gr.update(),
+                                        gr.update(),
+                                        gr.update(),
+                                        gr.update(),
+                                    ]
+                                    time.sleep(1)
                             else:
                                 # 准备倒计时开票, 不再渲染页面, 确保计时准确
                                 # 使用 time.perf_counter() 方法实现高精度计时, 但可能会占用一定的CPU资源
@@ -463,7 +615,7 @@ def go_tab():
                 ]
             except JSONDecodeError as e:
                 logger.error(f"配置文件格式错误: {e}")
-                yield [
+                return [
                     gr.update(value=withTimeString("配置文件格式错误"), visible=True),
                     gr.update(visible=True),
                     gr.update(),
@@ -585,7 +737,8 @@ def go_tab():
 
     go_btn.click(
         fn=start_go,
-        inputs=[ticket_ui, time_tmp, interval_ui, mode_ui, total_attempts_ui, api_key_input_ui],
+        inputs=[ticket_ui, authcode_prepare_text_ui, authcode_preorder_time_ui, time_tmp, interval_ui, mode_ui,
+                total_attempts_ui, api_key_input_ui],
         outputs=[go_ui, stop_btn, qr_image, gt_row, gt_ui, challenge_ui, trigger],
     )
     stop_btn.click(
