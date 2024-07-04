@@ -153,6 +153,13 @@ Running on local URL:  http://127.0.0.1:xxx
                 </a>
             </td>
             <td align="center">
+                <a href="https://github.com/CinnabarCHU">
+                    <img src="https://avatars.githubusercontent.com/u/79802118?v=4" width="100;" alt="CinnabarCHU"/>
+                    <br />
+                    <sub><b>CinnabarCHU</b></sub>
+                </a>
+            </td>
+            <td align="center">
                 <a href="https://github.com/shirok1">
                     <img src="https://avatars.githubusercontent.com/u/12044683?v=4" width="100;" alt="shirok1"/>
                     <br />
@@ -166,6 +173,8 @@ Running on local URL:  http://127.0.0.1:xxx
                     <sub><b>codycjy</b></sub>
                 </a>
             </td>
+		</tr>
+		<tr>
             <td align="center">
                 <a href="https://github.com/ipid">
                     <img src="https://avatars.githubusercontent.com/u/5251264?v=4" width="100;" alt="ipid"/>

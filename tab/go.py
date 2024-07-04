@@ -14,7 +14,7 @@ from gradio import SelectData
 from loguru import logger
 from requests import HTTPError, RequestException
 
-from config import global_cookieManager, main_request, configDB
+from config import global_cookieManager, main_request, configDB, time_service
 from geetest.CapSolverValidator import CapSolverValidator
 from geetest.NormalValidator import NormalValidator
 from geetest.RROCRValidator import RROCRValidator
@@ -98,6 +98,16 @@ def go_tab():
 
         upload_ui.upload(fn=upload, inputs=upload_ui, outputs=ticket_ui)
         upload_ui.select(file_select_handler, upload_ui, ticket_ui)
+
+        # 手动设置/更新时间偏差
+        with gr.Accordion(label='手动设置/更新时间偏差', open=False):
+            time_diff_ui = gr.Number(label="当前脚本时间偏差 (单位: ms)",
+                               info="你可以在这里手动输入时间偏差, 或点击下面按钮自动更新当前时间偏差。正值将推迟相应时间开始抢票, 负值将提前相应时间开始抢票。",
+                               value=time_service.get_timeoffset()*1000)
+            refresh_time_ui = gr.Button(value="点击自动更新时间偏差")
+            refresh_time_ui.click(fn=lambda:float(time_service.compute_timeoffset())*1000,inputs=None, outputs=time_diff_ui)
+            time_diff_ui.change(fn=lambda x:time_service.set_timeoffset(float(x)/1000), inputs=time_diff_ui, outputs=None)
+
         # 验证码选择
 
         way_select_ui = gr.Radio(ways, label="过验证码的方式", info="详细说明请前往 `训练你的验证码速度` 那一栏",
@@ -191,7 +201,7 @@ def go_tab():
         left_time = total_attempts
         yield [
             gr.update(value=withTimeString("详细信息见控制台"), visible=True),
-            gr.update(),
+            gr.update(visible=True),
             gr.update(),
             gr.update(),
             gr.update(),
@@ -202,7 +212,7 @@ def go_tab():
             try:
                 if time_start != "":
                     logger.info("0) 等待开始时间")
-                    timeoffset = (global_cookieManager.get_config_value("timeoffset")) / 1000
+                    timeoffset = time_service.get_timeoffset()
                     logger.info("时间偏差已被设置为: " + str(timeoffset) + 's')
                     authcode_prepare_flag = 0  # 标记是否已进行预填, 避免重复预填
                     while isRunning:
@@ -541,6 +551,8 @@ def go_tab():
 
                 @retry.retry(exceptions=RequestException, tries=60, delay=interval / 1000)
                 def inner_request():
+                    if not isRunning:
+                        raise ValueError("抢票结束")
                     ret = _request.post(
                         url=f"https://show.bilibili.com/api/ticket/order/createV2?project_id={tickets_info['project_id']}",
                         data=payload,
@@ -602,8 +614,19 @@ def go_tab():
                     left_time -= 1
                     if left_time <= 0:
                         break
-            except HTTPError as e:
-                logger.error(f"请求错误: {e}")
+            except JSONDecodeError as e:
+                logger.error(f"配置文件格式错误: {e}")
+                return [
+                    gr.update(value=withTimeString("配置文件格式错误"), visible=True),
+                    gr.update(visible=True),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                    gr.update(),
+                ]
+            except ValueError as e:
+                logger.info(f"{e}")
                 yield [
                     gr.update(value=withTimeString(f"有错误，具体查看控制台日志\n\n当前错误 {e}"), visible=True),
                     gr.update(visible=True),
@@ -613,10 +636,10 @@ def go_tab():
                     gr.update(),
                     gr.update(),
                 ]
-            except JSONDecodeError as e:
-                logger.error(f"配置文件格式错误: {e}")
-                return [
-                    gr.update(value=withTimeString("配置文件格式错误"), visible=True),
+            except HTTPError as e:
+                logger.error(f"请求错误: {e}")
+                yield [
+                    gr.update(value=withTimeString(f"有错误，具体查看控制台日志\n\n当前错误 {e}"), visible=True),
                     gr.update(visible=True),
                     gr.update(),
                     gr.update(),
@@ -715,6 +738,9 @@ def go_tab():
             geetest_seccode = res["geetest_seccode"]
             validate_con.notify()
             validate_con.release()
+            return gr.update(value=withTimeString(f"验证码获取成功"), visible=True)
+        else:
+            return gr.update(value=withTimeString(f"验证码获取失败"), visible=True)
 
     gt_html_finish_btn.click(
         fn=None,
@@ -722,7 +748,7 @@ def go_tab():
         outputs=geetest_result,
         js="() => captchaObj.getValidate()",
     )
-    gt_html_finish_btn.click(fn=receive_geetest_result, inputs=geetest_result)
+    gt_html_finish_btn.click(fn=receive_geetest_result, inputs=geetest_result, outputs=go_ui)
 
     go_btn.click(
         fn=None,
