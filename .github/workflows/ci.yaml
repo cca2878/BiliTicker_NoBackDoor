@@ -1,4 +1,4 @@
-name: Python Release
+name: Python CI
 
 on:
   workflow_dispatch:
@@ -29,10 +29,10 @@ jobs:
           pyinstaller bilibili-buy.spec
 
       - name: Zip the Build
-        run: Compress-Archive -Path ./dist/main/* -DestinationPath ${{ secrets.ReleaseZipName }}_${{ github.ref_name }}.zip
+        run: Compress-Archive -Path ./dist/main/* -DestinationPath ./CI_${{ github.ref_name }}.zip
 
       - name: Archive Build
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ secrets.ReleaseZipName }}_${{ github.ref_name }}.zip
-          path: ./
+          name: CI_${{ github.ref_name }}.zip
+          path: ./CI_${{ github.ref_name }}.zip
