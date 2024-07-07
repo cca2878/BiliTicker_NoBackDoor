@@ -6,6 +6,7 @@ from tab.go import go_tab
 from tab.login import login_tab
 from tab.settings import setting_tab
 from tab.train import train_tab
+from tab.problems import problems_tab
 
 header = """
 # B 站会员购抢票🌈
@@ -27,8 +28,11 @@ custom_css = """
 """
 
 if __name__ == "__main__":
+    print("***对于各类问题，请您善用截图、issues 和 Discussion 参与讨论或提问，而不是拍屏。***")
+    print("***关于更多问题，请前往 https://github.com/mikumifa/biliTickerBuy/wiki/ 进行查找。***")
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=-1, help="server port")
+    parser.add_argument("--port", type=int, default=7860, help="server port")
+    parser.add_argument("--share", type=bool, default=False, help="create a public link")
     args = parser.parse_args()
 
     logger.add("app.log")
@@ -42,10 +46,10 @@ if __name__ == "__main__":
             train_tab()
         with gr.Tab("登录管理"):
             login_tab()
+        with gr.Tab("常见问题"):
+            problems_tab()
+
 
     # 运行应用
     print("点击下面的网址运行程序     ↓↓↓↓↓↓↓↓↓↓↓↓↓↓")
-    if args.port == -1:
-        demo.launch(share=True)
-    else:
-        demo.launch(share=True, server_port=args.port)
+    demo.launch(server_port=args.port, share=args.share, inbrowser=True)
