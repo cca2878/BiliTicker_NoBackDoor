@@ -1,0 +1,38 @@
+name: Python Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    permissions: write-all
+    runs-on: windows-latest  # Use a Windows runner
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: 3.11
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller Pillow
+      - name: Install requirements
+        run: |
+          pip install -r requirements.txt
+      - name: Build Windows Executable
+        run: |
+          pyinstaller bilibili-buy.spec
+
+      - name: Zip the Build
+        run: Compress-Archive -Path ./dist/main/* -DestinationPath ${{ secrets.ReleaseZipName }}_${{ github.ref_name }}.zip
+
+      - name: Archive Build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ secrets.ReleaseZipName }}_${{ github.ref_name }}.zip
+          path: ./
